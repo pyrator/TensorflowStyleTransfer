@@ -1,11 +1,21 @@
 package uk.khall.ui.utils;
 
+import org.tensorflow.ndarray.ByteNdArray;
+import org.tensorflow.ndarray.NdArrays;
+import org.tensorflow.ndarray.Shape;
+import org.tensorflow.ndarray.buffer.ByteDataBuffer;
+import org.tensorflow.ndarray.buffer.DataBuffers;
+import org.tensorflow.types.TUint8;
+
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.MediaTracker;
+import java.awt.Point;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
+import java.awt.image.Raster;
 
 public class ImageUtility {
 
@@ -91,4 +101,17 @@ public class ImageUtility {
 
         return processedImage;
     }
+
+    public static BufferedImage bufferedImageFromTensor(TUint8 imageTensor, Shape imageShape){
+        ByteNdArray byteNdArray_3 = NdArrays.ofBytes(imageTensor.shape());
+        ByteNdArray newbyteNdArray_3 = imageTensor.copyTo(byteNdArray_3);
+        byte[] outpixels_3 = new byte[(int) (imageShape.asArray()[0] * (int) (imageShape.asArray()[1]) * 3)];
+        ByteDataBuffer newbyteDataBuffer_3 = DataBuffers.of(outpixels_3, false, false);
+        newbyteNdArray_3.read(newbyteDataBuffer_3);
+        newbyteDataBuffer_3.read(outpixels_3);
+        BufferedImage bufferedImage = new BufferedImage((int) (imageShape.asArray()[1]), (int) (imageShape.asArray()[0]), BufferedImage.TYPE_3BYTE_BGR);
+        bufferedImage.setData(Raster.createRaster(bufferedImage.getSampleModel(), new DataBufferByte(outpixels_3, outpixels_3.length), new Point()));
+        return bufferedImage;
+    }
+
 }
