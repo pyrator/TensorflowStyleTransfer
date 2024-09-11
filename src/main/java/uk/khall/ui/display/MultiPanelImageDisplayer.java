@@ -1,8 +1,10 @@
 package uk.khall.ui.display;
 
 import uk.khall.styletransfer.StylizeBlendedModel;
+import uk.khall.ui.utils.CheckXmpExifData;
 import uk.khall.ui.utils.FileChooser;
 import uk.khall.ui.utils.ImageUtility;
+import uk.khall.ui.utils.ImageUtils;
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -63,6 +65,7 @@ public class MultiPanelImageDisplayer extends JFrame {
     static final int scaleINIT = 50;
     private Integer previewSize = 256;
     private JPanel buttonPanel = null;
+    private Integer rotation = 1;
     public MultiPanelImageDisplayer(int canvasWidth, int canvasHeight) {
         this.canvasWidth = canvasWidth;
         this.canvasHeight = canvasHeight;
@@ -77,7 +80,7 @@ public class MultiPanelImageDisplayer extends JFrame {
         int n = 0;
         boolean found = false;
         do{
-            System.out.println("files =" + styleImages[n]);
+
             if (styleImages[n].getName().toLowerCase().endsWith(".jpg") || styleImages[n].getName().toLowerCase().endsWith(".jpeg")) {
                 try {
                     BufferedImage bi = ImageIO.read(styleImages[n]);
@@ -365,7 +368,6 @@ public class MultiPanelImageDisplayer extends JFrame {
      */
     private void mouseButtonClicked(MouseEvent evt) {
         String evtName = evt.getComponent().getName();
-        //System.out.println("evtName = " + evtName);
         if (evt.getButton() == MouseEvent.BUTTON1) {
             if (evtName.equals("loadImage")) {
                 sourceImage = loadImage();
@@ -433,7 +435,15 @@ public class MultiPanelImageDisplayer extends JFrame {
         dc.setVisible(true);
         setMainImagePath(dc.getFilePath());
         try {
+            rotation = CheckXmpExifData.getExifOrientationId(new File(getMainImagePath()));
             BufferedImage bi = ImageIO.read(new File(getMainImagePath()));
+
+            if (rotation == 6 ){
+                bi = ImageUtils.rotateImage(bi, 1);
+            } else if (rotation == 8 ){
+                bi = ImageUtils.rotateImage(bi, 3);
+            }
+
             BufferedImage smallImage = ImageUtility.resizeImage(bi, 1280,1280
                     , this);
             setImage(smallImage);
@@ -502,7 +512,11 @@ public class MultiPanelImageDisplayer extends JFrame {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        outputImage = StylizeBlendedModel.stylize(getMainImagePath(), getStyleImagePath(), getStyleSize(), getPercentStyle());
+        if (getRotation()!=1){
+            outputImage = StylizeBlendedModel.stylize(getMainImagePath(), getStyleImagePath(), getStyleSize(), getPercentStyle(), getRotation());
+        } else {
+            outputImage = StylizeBlendedModel.stylize(getMainImagePath(), getStyleImagePath(), getStyleSize(), getPercentStyle());
+        }
         BufferedImage smallImage = ImageUtility.resizeImage(outputImage, 1280,1280, this);
         setImage(smallImage);
         messageText.setText("complete " + suggestedName);
@@ -563,7 +577,6 @@ public class MultiPanelImageDisplayer extends JFrame {
                 avgg = ((pixel >> 8) & 0xff);
                 avgb = ((pixel) & 0xff);
                 sample = new Color(avgr, avgg, avgb, avga);
-                System.out.println(" a= " + avga + " r= " + avgr + " g= " + avgg + " b= " + avgb);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -636,6 +649,14 @@ public class MultiPanelImageDisplayer extends JFrame {
      */
     private void setCanvasHeight(int canvasHeight) {
         this.canvasHeight = canvasHeight;
+    }
+
+    public Integer getRotation() {
+        return rotation;
+    }
+
+    public void setRotation(Integer rotation) {
+        this.rotation = rotation;
     }
 
     /**

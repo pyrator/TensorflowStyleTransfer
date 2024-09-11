@@ -26,7 +26,7 @@
         <maven.compiler.target>18</maven.compiler.target>
         <logback.version>1.4.4</logback.version>
         <!--tensorflow.version>0.4.0</tensorflow.version-->
-        <tensorflow.version>0.5.0-SNAPSHOT</tensorflow.version>
+        <tensorflow.version>0.5.0</tensorflow.version>
         <javacpp.moduleId>cuda</javacpp.moduleId>
         <javacpp.platform.extension>-gpu</javacpp.platform.extension>
     </properties>
@@ -58,6 +58,11 @@
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
         </dependency>
-
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-imaging -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-imaging</artifactId>
+            <version>1.0-alpha2</version>
+        </dependency>
     </dependencies>
 </project>

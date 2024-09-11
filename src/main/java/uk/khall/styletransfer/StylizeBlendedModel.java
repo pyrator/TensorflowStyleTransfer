@@ -1,6 +1,5 @@
 package uk.khall.styletransfer;
 
-
 import org.tensorflow.Graph;
 import org.tensorflow.Operand;
 import org.tensorflow.Result;
@@ -9,6 +8,8 @@ import org.tensorflow.Session;
 import org.tensorflow.Tensor;
 import org.tensorflow.TensorFunction;
 
+
+import org.tensorflow.ndarray.Shape;
 import org.tensorflow.op.Ops;
 import org.tensorflow.op.core.Constant;
 import org.tensorflow.op.core.ExpandDims;
@@ -38,6 +39,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 
+
+import javax.imageio.ImageIO;
+
+
 public class StylizeBlendedModel {
     //serving_default -> {ConcreteFunction@2270} "Signature for "serving_default":
     //	Method: "tensorflow/serving/predict"
@@ -61,9 +66,7 @@ public class StylizeBlendedModel {
     public static BufferedImage stylize(String imagePath, String styleImagePath, Integer imgSize, Integer slideValue) {
 
         BufferedImage bufferedImage = null;
-
         float blendVal = slideValue.floatValue() / 100;
-
         // get path to model folder
         String modelFolder = "models";
         String modelName = "arbitrary-image-stylization-v1-256";
@@ -96,77 +99,238 @@ public class StylizeBlendedModel {
             DecodeJpeg decodeImage = tf.image.decodeJpeg(readFile.contents(), options);
             //fetch image from file
             try (TUint8 inputImage = (TUint8) s.runner().fetch(decodeImage).run().get(0)) {
-                Div<TFloat32> normalizedImage = tf.math.div(tf.dtypes.cast(decodeImage, TFloat32.class), tf.constant(255.0f));
-                ExpandDims<TFloat32> reshapedImage = tf.expandDims(normalizedImage, tf.constant(0));
-                try (TFloat32 resizeInputTensor = (TFloat32) s.runner().fetch(reshapedImage).run().get(0)) {
-                    Constant<TString> styleFileName = tf.constant(styleImagePath);
-                    readFile = tf.io.readFile(styleFileName);
-                    options = DecodeJpeg.channels(3L);
-                    decodeImage = tf.image.decodeJpeg(readFile.contents(), options);
-                    //fetch image from file
-                    try (TUint8 styleImage = (TUint8) s.runner().fetch(decodeImage).run().get(0)) {
-                        //create a 4D tensor of shape `[num_boxes, crop_height, crop_width, depth]`
-                        ExpandDims<TUint8> reshapeStyle = tf.expandDims(tf.constant(styleImage), tf.constant(0));
-                        try (TUint8 reshapedStyle = (TUint8) s.runner().fetch(reshapeStyle).run().get(0)) {
-                            //resize image
-                            Operand<TUint8> reshapedStyleOP = tf.constant(reshapedStyle);
-                            ResizeBilinear.Options halfPixelCenters = ResizeBilinear.halfPixelCenters(true);
-                            Operand<TInt32> reSize = tf.constant(new int[]{imgSize, imgSize});
-                            ResizeBilinear resizeBilinear = tf.image.resizeBilinear(reshapedStyleOP, reSize, halfPixelCenters);
-                            try (TFloat32 croppedStyleImage = (TFloat32) s.runner().fetch(resizeBilinear).run().get(0)) {
-                                Div<TFloat32> div = tf.math.div(
-                                        tf.constant(croppedStyleImage),
-                                        tf.constant(255.0f)
-                                );
-                                try (TFloat32 styleResizeTensor = (TFloat32) s.runner().fetch(div).run().get(0)) {
+                ExpandDims<TUint8> reshape = tf.expandDims(tf.constant(inputImage), tf.constant(0));
+                try (TUint8 reshapeTensor = (TUint8) s.runner().fetch(reshape).run().get(0)) {
+                    Div<TFloat32> normalizedImage = tf.math.div(tf.dtypes.cast(decodeImage, TFloat32.class), tf.constant(255.0f));
+                    //Div<TFloat32> normalizedImage = tf.math.div(tf.dtypes.cast(tf.constant(reshapeTensor), TFloat32.class), tf.constant(255.0f));
+                    ExpandDims<TFloat32> reshapedImage = tf.expandDims(normalizedImage, tf.constant(0));
+                    try (TFloat32 resizeInputTensor = (TFloat32) s.runner().fetch(reshapedImage).run().get(0)) {
+                        Constant<TString> styleFileName = tf.constant(styleImagePath);
+                        readFile = tf.io.readFile(styleFileName);
+                        options = DecodeJpeg.channels(3L);
+                        decodeImage = tf.image.decodeJpeg(readFile.contents(), options);
+                        //fetch image from file
+                        try (TUint8 styleImage = (TUint8) s.runner().fetch(decodeImage).run().get(0)) {
+                            //create a 4D tensor of shape `[num_boxes, crop_height, crop_width, depth]`
+                            ExpandDims<TUint8> reshapeStyle = tf.expandDims(tf.constant(styleImage), tf.constant(0));
+                            try (TUint8 reshapedStyle = (TUint8) s.runner().fetch(reshapeStyle).run().get(0)) {
+                                //resize image
+                                Operand<TUint8> reshapedStyleOP = tf.constant(reshapedStyle);
+                                ResizeBilinear.Options halfPixelCenters = ResizeBilinear.halfPixelCenters(true);
+                                Operand<TInt32> reSize = tf.constant(new int[]{imgSize, imgSize});
+                                ResizeBilinear resizeBilinear = tf.image.resizeBilinear(reshapedStyleOP, reSize, halfPixelCenters);
+                                try (TFloat32 croppedStyleImage = (TFloat32) s.runner().fetch(resizeBilinear).run().get(0)) {
+                                    Div<TFloat32> div = tf.math.div(
+                                            tf.constant(croppedStyleImage),
+                                            tf.constant(255.0f)
+                                    );
+                                    try (TFloat32 styleResizeTensor = (TFloat32) s.runner().fetch(div).run().get(0)) {
+                                        ResizeBilinear resizeBilinearInputImage = tf.image.resizeBilinear(tf.constant(reshapeTensor), reSize, halfPixelCenters);
+                                        try (TFloat32 croppedInputImage = (TFloat32) s.runner().fetch(resizeBilinearInputImage).run().get(0)) {
+                                            Add<TFloat32> divInput =
+                                                    tf.math.add(
+                                                            tf.math.mul(
+                                                                    tf.math.div(tf.constant(croppedInputImage), tf.constant(255.0f)),
+                                                                    tf.constant(blendVal)
+                                                            ),
+                                                            tf.math.mul(tf.constant(styleResizeTensor), tf.constant(1.0f - blendVal))
+                                                    );
 
-                                    ResizeBilinear resizeBilinearInputImage = tf.image.resizeBilinear(reshapedStyleOP, reSize, halfPixelCenters);
-                                    try (TFloat32 croppedInputImage = (TFloat32) s.runner().fetch(resizeBilinearInputImage).run().get(0)) {
-                                        Add<TFloat32> divInput =
-                                                tf.math.add(
-                                                        tf.math.mul(
-                                                                tf.math.div(tf.constant(croppedInputImage), tf.constant(255.0f)),
-                                                                tf.constant(blendVal)
-                                                        ),
-                                                        tf.math.mul(tf.constant(styleResizeTensor), tf.constant(1 - blendVal))
-                                                );
-
-                                        try (TFloat32 styleBlendResizeTensor = (TFloat32) s.runner().fetch(divInput).run().get(0)) {
-                                            //The given SavedModel MetaGraphDef key
-                                            SavedModelBundle model = SavedModelBundle.loader(modelPath).withTags("serve").withConfigProto(configProto).load();
-                                            Map<String, Tensor> feedDict = new HashMap<>();
-                                            //The given SavedModel SignatureDef input
-                                            feedDict.put("placeholder", resizeInputTensor);
-                                            feedDict.put("placeholder_1", styleBlendResizeTensor);
-                                            TensorFunction serving = model.function("serving_default");
-                                            //System.out.println(serving.signature());
-
-                                            try (Result result = serving.call(feedDict);
-                                                 TFloat32 outputTensor = (TFloat32) result.get("output_0").orElseThrow(Exception::new)) {
-
-                                                Reverse<TUint8> reverse = tf.reverse(tf.reshape(tf.dtypes.cast(tf.math.mul(
-                                                                        tf.constant(outputTensor),
-                                                                        tf.constant(255.0f)
-                                                                ), TUint8.class),
-                                                                tf.array(
-                                                                        outputTensor.shape().asArray()[1],
-                                                                        outputTensor.shape().asArray()[2],
-                                                                        outputTensor.shape().asArray()[3]
-                                                                )
-                                                        ), tf.constant(new long[]{2L})
-                                                );
-                                                try (TUint8 outputImage = (TUint8) s.runner().fetch(reverse).run().get(0)) {
-                                                    bufferedImage = ImageUtility.bufferedImageFromTensor(outputImage, outputImage.shape());
+                                            try (TFloat32 styleBlendResizeTensor = (TFloat32) s.runner().fetch(divInput).run().get(0)) {
+                                                //The given SavedModel MetaGraphDef key
+                                                SavedModelBundle model = SavedModelBundle.loader(modelPath).withTags("serve").withConfigProto(configProto).load();
+                                                Map<String, Tensor> feedDict = new HashMap<>();
+                                                //The given SavedModel SignatureDef input
+                                                feedDict.put("placeholder", resizeInputTensor);
+                                                feedDict.put("placeholder_1", styleBlendResizeTensor);
+                                                TensorFunction serving = model.function("serving_default");
+                                                try (Result result = serving.call(feedDict);
+                                                     TFloat32 outputTensor = (TFloat32) result.get("output_0").orElseThrow(Exception::new)
+                                                ) {
+                                                    Reverse<TUint8> reverse = tf.reverse(tf.reshape(tf.dtypes.cast(tf.math.mul(
+                                                                            tf.constant(outputTensor),
+                                                                            tf.constant(255.0f)
+                                                                    ), TUint8.class),
+                                                                    tf.array(
+                                                                            outputTensor.shape().asArray()[1],
+                                                                            outputTensor.shape().asArray()[2],
+                                                                            outputTensor.shape().asArray()[3]
+                                                                    )
+                                                            ), tf.constant(new long[]{2L})
+                                                    );
+                                                    try (TUint8 outputImage = (TUint8) s.runner().fetch(reverse).run().get(0)) {
+                                                        bufferedImage = ImageUtility.bufferedImageFromTensor(outputImage, outputImage.shape());
+                                                    }
+                                                } catch (Exception e) {
+                                                    e.printStackTrace();
                                                 }
-                                            } catch (Exception e) {
-                                                e.printStackTrace();
                                             }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+        return bufferedImage;
+    }
+    public static BufferedImage stylize(String imagePath, String styleImagePath, Integer imgSize, Integer slideValue, Integer rotation) {
+        BufferedImage bufferedImage = null;
+        float blendVal = slideValue.floatValue() / 100;
+        // get path to model folder
+        String modelFolder = "models";
+        String modelName = "arbitrary-image-stylization-v1-256";
+        String version = "2";
+        String urlStart = "https://tfhub.dev/google/magenta";
+        String modelPath = modelFolder + "/" + modelName;
+        try {
+            if (!new File(modelPath).exists()) {
+                ModelHubUtils.extractTarGZ(urlStart, modelName, modelFolder, version);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
+        GPUOptions gpu = ConfigProto.getDefaultInstance().getGpuOptions().toBuilder() //
+                .setPerProcessGpuMemoryFraction(0.9) //
+                .setAllowGrowth(true) //
+                .build(); //
+
+        ConfigProto configProto = ConfigProto.newBuilder(ConfigProto.getDefaultInstance()) //
+                .setLogDevicePlacement(true) //
+                .mergeGpuOptions(gpu) //
+                .build(); //
+        try (Graph graph = new Graph(); Session s = new Session(graph)) {
+            Ops tf = Ops.create(graph);
+            Constant<TString> fileName = tf.constant(imagePath);
+            ReadFile readFile = tf.io.readFile(fileName);
+            DecodeJpeg.Options options = DecodeJpeg.channels(3L);
+            DecodeJpeg decodeImage = tf.image.decodeJpeg(readFile.contents(), options);
+            //fetch image from file
+
+            try (TUint8 inputImage = (TUint8) s.runner().fetch(decodeImage).run().get(0)) {
+                org.tensorflow.ndarray.Shape imageShape = inputImage.shape();
+
+
+                try (TUint8 rotatedImage = Tensor.of(TUint8.class,
+                            Shape.of(imageShape.get(1), imageShape.get(0), imageShape.get(2)))) {
+                    if (rotation.equals(6)) {
+                        for (int i = 0; i < imageShape.get(0); i++) {
+                            for (int j = 0; j < imageShape.get(1); j++) {
+                                rotatedImage.set(inputImage.get(i, j, 0), j, imageShape.get(0) - i - 1, 0);
+                                rotatedImage.set(inputImage.get(i, j, 1), j, imageShape.get(0) - i - 1, 1);
+                                rotatedImage.set(inputImage.get(i, j, 2), j, imageShape.get(0) - i - 1, 2);
+                            }
+                        }
+                    } else {
+
+                        for (int i = 0; i < imageShape.get(0); i++) {
+                            for (int j = 0; j < imageShape.get(1); j++) {
+                                rotatedImage.set(inputImage.get(i, j, 0), imageShape.get(1) - j - 1, i, 0);
+                                rotatedImage.set(inputImage.get(i, j, 1), imageShape.get(1) - j - 1, i, 1);
+                                rotatedImage.set(inputImage.get(i, j, 2), imageShape.get(1) - j - 1, i, 2);
+                            }
+                        }
+                    }
+
+                    ExpandDims<TUint8> reshape = tf.expandDims(tf.constant(rotatedImage), tf.constant(0));
+                    try (TUint8 reshapeTensor = (TUint8) s.runner().fetch(reshape).run().get(0)) {
+                        Div<TFloat32> normalizedImage = tf.math.div(tf.dtypes.cast(decodeImage, TFloat32.class), tf.constant(255.0f));
+                        //Operand<TUint8> reshapedInputOP = tf.constant(reshapeTensor);
+                        //Div<TFloat32> normalizedImage = tf.math.div(tf.dtypes.cast(reshapedInputOP, TFloat32.class), tf.constant(255.0f));
+                        ExpandDims<TFloat32> reshapedImage = tf.expandDims(normalizedImage, tf.constant(0));
+                        try (TFloat32 resizeInputTensor = (TFloat32) s.runner().fetch(reshapedImage).run().get(0)) {
+                            Shape normalizedImageShape = resizeInputTensor.shape();
+                            try (TFloat32 rotatedNormalizedImage = Tensor.of(TFloat32.class,
+                                    Shape.of(normalizedImageShape.get(0), normalizedImageShape.get(2), normalizedImageShape.get(1), normalizedImageShape.get(3)))) {
+                                org.tensorflow.ndarray.Shape rotatedNormalizedImageShape = rotatedNormalizedImage.shape();
+                                if (rotation.equals(6)){
+                                    for (int i = 0; i < normalizedImageShape.get(1); i++) {
+                                        for (int j = 0; j < normalizedImageShape.get(2); j++) {
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 0), 0, j, normalizedImageShape.get(1) - i - 1, 0);
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 1), 0, j, normalizedImageShape.get(1) - i - 1, 1);
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 2), 0, j, normalizedImageShape.get(1) - i - 1, 2);
+                                        }
+                                    }
+                                }
+                                else {
+                                    for (int i = 0; i < normalizedImageShape.get(1); i++) {
+                                        for (int j = 0; j < normalizedImageShape.get(2); j++) {
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 0), 0, normalizedImageShape.get(2) - j - 1, i, 0);
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 1), 0, normalizedImageShape.get(2) - j - 1, i, 1);
+                                            rotatedNormalizedImage.setFloat(resizeInputTensor.getFloat(0, i, j, 2), 0, normalizedImageShape.get(2) - j - 1, i, 2);
+                                        }
+                                    }
+                                }
+                                Constant<TString> styleFileName = tf.constant(styleImagePath);
+                                readFile = tf.io.readFile(styleFileName);
+                                options = DecodeJpeg.channels(3L);
+                                decodeImage = tf.image.decodeJpeg(readFile.contents(), options);
+                                //fetch image from file
+                                try (TUint8 styleImage = (TUint8) s.runner().fetch(decodeImage).run().get(0)) {
+                                    //create a 4D tensor of shape `[num_boxes, crop_height, crop_width, depth]`
+                                    ExpandDims<TUint8> reshapeStyle = tf.expandDims(tf.constant(styleImage), tf.constant(0));
+                                    try (TUint8 reshapedStyle = (TUint8) s.runner().fetch(reshapeStyle).run().get(0)) {
+                                        //resize image
+                                        Operand<TUint8> reshapedStyleOP = tf.constant(reshapedStyle);
+                                        ResizeBilinear.Options halfPixelCenters = ResizeBilinear.halfPixelCenters(true);
+                                        Operand<TInt32> reSize = tf.constant(new int[]{imgSize, imgSize});
+                                        ResizeBilinear resizeBilinear = tf.image.resizeBilinear(reshapedStyleOP, reSize, halfPixelCenters);
+                                        try (TFloat32 croppedStyleImage = (TFloat32) s.runner().fetch(resizeBilinear).run().get(0)) {
+                                            Div<TFloat32> div = tf.math.div(
+                                                    tf.constant(croppedStyleImage),
+                                                    tf.constant(255.0f)
+                                            );
+                                            try (TFloat32 styleResizeTensor = (TFloat32) s.runner().fetch(div).run().get(0)) {
+                                                //mix the two images
+                                                ResizeBilinear resizeBilinearInputImage = tf.image.resizeBilinear(tf.constant(reshapeTensor), reSize, halfPixelCenters);
+                                                try (TFloat32 croppedInputImage = (TFloat32) s.runner().fetch(resizeBilinearInputImage).run().get(0)) {
+                                                    Add<TFloat32> divInput =
+                                                            tf.math.add(
+                                                                    tf.math.mul(
+                                                                            tf.math.div(tf.constant(croppedInputImage), tf.constant(255.0f)),
+                                                                            tf.constant(blendVal)
+                                                                    ),
+                                                                    tf.math.mul(tf.constant(styleResizeTensor), tf.constant(1 - blendVal))
+                                                            );
+
+                                                    try (TFloat32 styleBlendResizeTensor = (TFloat32) s.runner().fetch(divInput).run().get(0)) {
+                                                        //The given SavedModel MetaGraphDef key
+                                                        SavedModelBundle model = SavedModelBundle.loader(modelPath).withTags("serve").withConfigProto(configProto).load();
+                                                        Map<String, Tensor> feedDict = new HashMap<>();
+                                                        //The given SavedModel SignatureDef input
+                                                        feedDict.put("placeholder", rotatedNormalizedImage);
+                                                        feedDict.put("placeholder_1", styleBlendResizeTensor);
+                                                        TensorFunction serving = model.function("serving_default");
+                                                        try (Result result = serving.call(feedDict);
+                                                            TFloat32 outputTensor = (TFloat32) result.get("output_0").orElseThrow(Exception::new)) {
+                                                            Reverse<TUint8> reverse = tf.reverse(tf.reshape(tf.dtypes.cast(tf.math.mul(
+                                                                                    tf.constant(outputTensor),
+                                                                                    tf.constant(255.0f)
+                                                                            ), TUint8.class),
+                                                                            tf.array(
+                                                                                    outputTensor.shape().asArray()[1],
+                                                                                    outputTensor.shape().asArray()[2],
+                                                                                    outputTensor.shape().asArray()[3]
+                                                                            )
+                                                                    ), tf.constant(new long[]{2L})
+                                                            );
+                                                            try (TUint8 outputImage = (TUint8) s.runner().fetch(reverse).run().get(0)) {
+                                                                bufferedImage = ImageUtility.bufferedImageFromTensor(outputImage, outputImage.shape());
+                                                            }
+                                                        } catch (Exception e) {
+                                                            e.printStackTrace();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
